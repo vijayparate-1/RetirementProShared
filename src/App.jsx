@@ -950,7 +950,7 @@ const [dbLoaded, setDbLoaded] = useState(false);
   const addBigExpense = () => setInp(p => ({ ...p, bigExpenses: [...p.bigExpenses, { id: uid(), label: "Renovation", age: 60, amount: 50000 }] }));
   const addRatePoint = () => setInp(p => ({ ...p, rateSchedule: [...p.rateSchedule, { id: uid(), age: inp.retirementAge, rate: 5.5 }] }));
 
-  if (!session) return (
+ if (!session) return (
     <div style={{ minHeight:"100vh", background:"#0f172a",
       display:"flex", alignItems:"center", justifyContent:"center" }}>
       <div style={{ background:"white", borderRadius:16, padding:"40px 48px",
@@ -962,7 +962,6 @@ const [dbLoaded, setDbLoaded] = useState(false);
         <div style={{ fontSize:12, color:"#64748b", marginBottom:28 }}>
           {authMode==='login' ? 'Sign in to your account' : 'Create your account'}
         </div>
-
         <input
           type="email"
           placeholder="Email address"
@@ -993,14 +992,12 @@ const [dbLoaded, setDbLoaded] = useState(false);
             fontSize:14, marginBottom:12, boxSizing:"border-box",
             outline:"none" }}
         />
-
         {authError && (
           <div style={{ color: authError.includes('Check') ? "#16a34a" : "#ef4444",
             fontSize:12, marginBottom:12 }}>
             {authError}
           </div>
         )}
-
         <button
           onClick={async ()=>{
             if(authMode==='login'){
@@ -1017,7 +1014,6 @@ const [dbLoaded, setDbLoaded] = useState(false);
             fontSize:15, fontWeight:700, cursor:"pointer", marginBottom:14 }}>
           {authMode==='login' ? 'Sign In →' : 'Create Account →'}
         </button>
-
         <div style={{ fontSize:12, color:"#64748b" }}>
           {authMode==='login' ? "Don't have an account? " : "Already have an account? "}
           <span onClick={()=>{ setAuthMode(authMode==='login'?'signup':'login'); setAuthError(''); }}
@@ -1025,15 +1021,13 @@ const [dbLoaded, setDbLoaded] = useState(false);
             {authMode==='login' ? 'Sign Up' : 'Sign In'}
           </span>
         </div>
-
         <div style={{ fontSize:10, color:"#94a3b8", marginTop:20 }}>
           Developed by Vijay Parate using Claude AI
         </div>
       </div>
     </div>
   );
-
-  if (!unlocked) return (
+  if (!session) return (
     <div style={{ minHeight:"100vh", background:"#0f172a",
       display:"flex", alignItems:"center", justifyContent:"center" }}>
       <div style={{ background:"white", borderRadius:16, padding:"40px 48px",
