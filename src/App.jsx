@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = 'https://nigxjhhsyxcywtjwhbjp.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pZ3hqaGhzeXhjeXd0andoYmpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMDMxNDUsImV4cCI6MjA4ODY3OTE0NX0.FDoOPCm9L44pJy_EnVd_7MTdJTtJVyddQqdMpwuzmNA';
 const db = createClient(SUPABASE_URL, SUPABASE_ANON);
-const APP_PASSCODE = '2025Retire#';
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -722,9 +721,11 @@ export default function App() {
 
   const [sankeyMode, setSankeyMode] = useState("simple"); // "simple" | "detailed"
   const [nwSankeyMode, setNwSankeyMode] = useState("simple");
-  const [unlocked, setUnlocked] = useState(false);
-const [passcode, setPasscode] = useState('');
-const [passcodeError, setPasscodeError] = useState(false);
+  const [session, setSession] = useState(null);
+const [authEmail, setAuthEmail] = useState('');
+const [authPassword, setAuthPassword] = useState('');
+const [authError, setAuthError] = useState('');
+const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
 const [saving, setSaving] = useState(false);
 const [lastSaved, setLastSaved] = useState(null);
 const [dbLoaded, setDbLoaded] = useState(false);
@@ -787,14 +788,21 @@ const [dbLoaded, setDbLoaded] = useState(false);
   const SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxxWuYgv4GiYhKr2_7hXFLMwrZFFsXDtGcCvX4ycalRMRV-8kk1t-39CWZ9KnH76FKT/exec";
   const [saveStatus, setSaveStatus] = useState("idle"); // "idle" | "saving" | "saved" | "error"
 
-  // ── Load from Supabase on unlock ──
+ // ── Auth session listener ──
   useEffect(() => {
-    if (!unlocked || dbLoaded) return;
+    db.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = db.auth.onAuthStateChange((_e, session) => setSession(session));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Load from Supabase on login ──
+  useEffect(() => {
+    if (!session || dbLoaded) return;
     const load = async () => {
-      const { data, error } = await db
-        .from('retirement_data')
+      const { data } = await db
+        .from('shared_retirement_data')
         .select('data')
-        .eq('id', 'personal')
+        .eq('user_email', session.user.email)
         .single();
       if (data?.data && Object.keys(data.data).length > 0) {
         setInp(prev => ({ ...prev, ...data.data }));
@@ -802,22 +810,31 @@ const [dbLoaded, setDbLoaded] = useState(false);
       setDbLoaded(true);
     };
     load();
-  }, [unlocked]);
+  }, [session]);
 
   // ── Auto-save to Supabase ──
   useEffect(() => {
-    if (!unlocked || !dbLoaded) return;
+    if (!session || !dbLoaded) return;
     const timer = setTimeout(async () => {
       setSaving(true);
-      await db.from('retirement_data')
-        .update({ data: inp, updated_at: new Date().toISOString() })
-        .eq('id', 'personal');
+      const { data: existing } = await db
+        .from('shared_retirement_data')
+        .select('id')
+        .eq('user_email', session.user.email)
+        .single();
+      if (existing) {
+        await db.from('shared_retirement_data')
+          .update({ data: inp, updated_at: new Date().toISOString() })
+          .eq('user_email', session.user.email);
+      } else {
+        await db.from('shared_retirement_data')
+          .insert({ user_email: session.user.email, data: inp });
+      }
       setSaving(false);
       setLastSaved(new Date());
     }, 1500);
     return () => clearTimeout(timer);
-  }, [inp, unlocked, dbLoaded]);
-  const saveToSheets = useCallback(() => {
+  }, [inp, session, dbLoaded]);  const saveToSheets = useCallback(() => {
     setSaveStatus("saving");
     const payload = {
       timestamp:              new Date().toLocaleString("en-AU"),
@@ -933,47 +950,82 @@ const [dbLoaded, setDbLoaded] = useState(false);
   const addBigExpense = () => setInp(p => ({ ...p, bigExpenses: [...p.bigExpenses, { id: uid(), label: "Renovation", age: 60, amount: 50000 }] }));
   const addRatePoint = () => setInp(p => ({ ...p, rateSchedule: [...p.rateSchedule, { id: uid(), age: inp.retirementAge, rate: 5.5 }] }));
 
-  if (!unlocked) return (
+  if (!session) return (
     <div style={{ minHeight:"100vh", background:"#0f172a",
       display:"flex", alignItems:"center", justifyContent:"center" }}>
       <div style={{ background:"white", borderRadius:16, padding:"40px 48px",
         textAlign:"center", boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
-        minWidth:340 }}>
+        minWidth:360 }}>
         <div style={{ fontSize:48, marginBottom:8 }}>🦘</div>
         <div style={{ fontSize:22, fontWeight:900, color:"#0f172a",
           marginBottom:4 }}>AUS Retirement Pro</div>
         <div style={{ fontSize:12, color:"#64748b", marginBottom:28 }}>
-          Personal Financial Planning Tool
+          {authMode==='login' ? 'Sign in to your account' : 'Create your account'}
         </div>
+
+        <input
+          type="email"
+          placeholder="Email address"
+          value={authEmail}
+          onChange={e=>{ setAuthEmail(e.target.value); setAuthError(''); }}
+          style={{ width:"100%", padding:"12px 16px", borderRadius:8,
+            border:`2px solid ${authError?"#ef4444":"#e2e8f0"}`,
+            fontSize:14, marginBottom:10, boxSizing:"border-box",
+            outline:"none" }}
+        />
         <input
           type="password"
-          placeholder="Enter passcode"
-          value={passcode}
-          onChange={e=>{ setPasscode(e.target.value); setPasscodeError(false); }}
-          onKeyDown={e=>{ if(e.key==='Enter'){
-            if(passcode===APP_PASSCODE){ setUnlocked(true); }
-            else { setPasscodeError(true); }
+          placeholder="Password"
+          value={authPassword}
+          onChange={e=>{ setAuthPassword(e.target.value); setAuthError(''); }}
+          onKeyDown={async e=>{ if(e.key==='Enter') {
+            if(authMode==='login'){
+              const {error} = await db.auth.signInWithPassword({email:authEmail, password:authPassword});
+              if(error) setAuthError(error.message);
+            } else {
+              const {error} = await db.auth.signUp({email:authEmail, password:authPassword});
+              if(error) setAuthError(error.message);
+              else setAuthError('Check your email to confirm your account');
+            }
           }}}
           style={{ width:"100%", padding:"12px 16px", borderRadius:8,
-            border:`2px solid ${passcodeError?"#ef4444":"#e2e8f0"}`,
-            fontSize:16, marginBottom:12, boxSizing:"border-box",
-            outline:"none", textAlign:"center", letterSpacing:"0.2em" }}
+            border:`2px solid ${authError?"#ef4444":"#e2e8f0"}`,
+            fontSize:14, marginBottom:12, boxSizing:"border-box",
+            outline:"none" }}
         />
-        {passcodeError && (
-          <div style={{ color:"#ef4444", fontSize:12, marginBottom:12 }}>
-            Incorrect passcode — try again
+
+        {authError && (
+          <div style={{ color: authError.includes('Check') ? "#16a34a" : "#ef4444",
+            fontSize:12, marginBottom:12 }}>
+            {authError}
           </div>
         )}
+
         <button
-          onClick={()=>{
-            if(passcode===APP_PASSCODE){ setUnlocked(true); }
-            else { setPasscodeError(true); }
+          onClick={async ()=>{
+            if(authMode==='login'){
+              const {error} = await db.auth.signInWithPassword({email:authEmail, password:authPassword});
+              if(error) setAuthError(error.message);
+            } else {
+              const {error} = await db.auth.signUp({email:authEmail, password:authPassword});
+              if(error) setAuthError(error.message);
+              else setAuthError('Check your email to confirm your account');
+            }
           }}
           style={{ width:"100%", padding:"12px", borderRadius:8,
             background:"#0f172a", color:"white", border:"none",
-            fontSize:15, fontWeight:700, cursor:"pointer" }}>
-          Enter →
+            fontSize:15, fontWeight:700, cursor:"pointer", marginBottom:14 }}>
+          {authMode==='login' ? 'Sign In →' : 'Create Account →'}
         </button>
+
+        <div style={{ fontSize:12, color:"#64748b" }}>
+          {authMode==='login' ? "Don't have an account? " : "Already have an account? "}
+          <span onClick={()=>{ setAuthMode(authMode==='login'?'signup':'login'); setAuthError(''); }}
+            style={{ color:"#2563eb", cursor:"pointer", fontWeight:700 }}>
+            {authMode==='login' ? 'Sign Up' : 'Sign In'}
+          </span>
+        </div>
+
         <div style={{ fontSize:10, color:"#94a3b8", marginTop:20 }}>
           Developed by Vijay Parate using Claude AI
         </div>
@@ -1050,7 +1102,13 @@ const [dbLoaded, setDbLoaded] = useState(false);
             <Badge color={wellnessColor}>{wellnessGrade} {wellnessTotal}/100</Badge>
               <span style={{ fontSize:10, color: saving ? "#f59e0b" : "#94a3b8",
   fontWeight:700, marginLeft:8 }}>
-  {saving ? "💾 Saving..." : lastSaved ? `✅ Saved ${lastSaved.toLocaleTimeString()}` : ""}
+  {saving ? "💾 Saving..." : lastSaved instanceof Date ? `✅ Saved ${lastSaved.toLocaleTimeString()}` : ""}
+<button onClick={()=>{ db.auth.signOut(); }}
+  style={{ fontSize:10, color:"#64748b", background:"#f1f5f9",
+    border:"1px solid #e2e8f0", borderRadius:6,
+    padding:"3px 10px", cursor:"pointer", marginLeft:8 }}>
+  Sign Out
+</button>
 </span>
             {(() => {
               const mcScore    = Math.round((mc.successRate||0) * 25);
